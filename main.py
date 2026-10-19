@@ -1,8 +1,3 @@
-if(view!==1)drawManifold('proj_a','rips_a',pos,HUE_A,1,true,D.tok_a);
-if(view!==0)drawManifold('proj_b','rips_b',pos,HUE_B,1,true,D.tok_b);
-
-ta = (req.get("text_a") or "").strip() or "Hello world."
-tb = (req.get("text_b") or "").strip() or "Goodbye world."#!/usr/bin/env python3
 # /// script
 # requires-python = ">=3.10"
 # dependencies = [
