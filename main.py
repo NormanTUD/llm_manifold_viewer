@@ -2006,8 +2006,6 @@ renderStages();
 const isoEl = document.getElementById('iso'), isoLab = document.getElementById('isoLab');
 isoEl.oninput = () => { ISO = parseFloat(isoEl.value); isoLab.textContent = ISO.toFixed(2); };
 const smEl = document.getElementById('smooth'), smLab = document.getElementById('smLab');
-sm
-const smEl = document.getElementById('smooth'), smLab = document.getElementById('smLab');
 smEl.oninput = () => { smLab.textContent = parseFloat(smEl.value).toFixed(2); };
 
 /* ════════════════════════════════════════════════════════════════════
