@@ -467,7 +467,6 @@ def analyse(texts, model_name, pipeline, emd_mode,
     proj = [[((p - centre) / scale).round(4).tolist() for p in s] for s in proj]
 
     series = []
-    for s in range(n_series    series = []
     for s in range(n_series):
         drift_s = [0.0] + [wasserstein(HS[s][L - 1], HS[s][L], mode=emd_mode)
                            for L in range(1, n_layers)]
