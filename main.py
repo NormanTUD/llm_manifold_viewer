@@ -469,7 +469,8 @@ def analyse(texts, model_name, pipeline, emd_mode,
         emd_layers.append(pairs)
 
     series = []
-    for s in range(n_series):        drift_s = [0.0] + [wasserstein(HS[s][L - 1], HS[s][L], mode=emd_mode)
+    for s in range(n_series):
+        drift_s = [0.0] + [wasserstein(HS[s][L - 1], HS[s][L], mode=emd_mode)
                            for L in range(1, n_layers)]
         norms_s = [float(np.linalg.norm(HS[s][L], axis=1).mean())
                    for L in range(n_layers)]
