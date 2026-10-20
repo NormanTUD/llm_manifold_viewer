@@ -598,8 +598,13 @@ def build_html() -> str:
   }
   *{box-sizing:border-box}
   html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;
-    font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--txt-dim)}
+    font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--txt-dim);
+    user-select:none;-webkit-user-select:none}
+  textarea,input,select{user-select:text;-webkit-user-select:text}
   canvas#gl{display:block;position:fixed;inset:0}
+  #vig{position:fixed;inset:0;pointer-events:none;z-index:1;
+    background:radial-gradient(120% 95% at 50% 42%, transparent 52%,
+      rgba(3,5,10,.55) 100%)}
   canvas#ov{display:block;position:fixed;inset:0;pointer-events:none;z-index:2}
   ::-webkit-scrollbar{width:6px}
   ::-webkit-scrollbar-track{background:transparent}
@@ -725,8 +730,8 @@ def build_html() -> str:
   #h u{text-decoration:none;font-size:9px;letter-spacing:.16em;
     color:var(--txt-faint);display:block;margin-top:5px}
 
-  #rail{position:fixed;right:44px;top:50%;transform:translateY(-50%);width:46px;
-    height:60vh;z-index:12;cursor:pointer}
+  #rail{position:fixed;right:44px;top:50%;transform:translateY(-50%);width:92px;
+    height:60vh;z-index:12;cursor:pointer;touch-action:none}
   #line{position:absolute;left:23px;top:0;bottom:0;width:1px;
     background:linear-gradient(180deg,rgba(255,255,255,.04),
       rgba(255,255,255,.2),rgba(255,255,255,.04))}
@@ -801,6 +806,7 @@ def build_html() -> str:
 </head>
 <body>
 <canvas id="gl"></canvas>
+<div id="vig"></div>
 <canvas id="ov"></canvas>
 
 <div id="ui">
@@ -1027,13 +1033,16 @@ void main(){
 const VS_LINE = `
 precision highp float;
 attribute vec3 aPos;
+attribute float aAl;
 uniform mat4 uMVP;
-void main(){ gl_Position = uMVP * vec4(aPos,1.0); }`;
+varying float vAl;
+void main(){ gl_Position = uMVP * vec4(aPos,1.0); vAl = aAl; }`;
 
 const FS_LINE = `
 precision highp float;
 uniform vec4 uCol;
-void main(){ gl_FragColor = uCol; }`;
+varying float vAl;
+void main(){ gl_FragColor = vec4(uCol.rgb, uCol.a * vAl); }`;
 
 function mkShader(src, type){
   const s=gl.createShader(type); gl.shaderSource(s,src); gl.compileShader(s);
@@ -1071,6 +1080,7 @@ if(gl){
     uCol:gl.getUniformLocation(PR_PT,'uCol')};
   LOC.line={
     aPos:gl.getAttribLocation(PR_LINE,'aPos'),
+    aAl :gl.getAttribLocation(PR_LINE,'aAl'),
     uMVP:gl.getUniformLocation(PR_LINE,'uMVP'),
     uCol:gl.getUniformLocation(PR_LINE,'uCol')};
 }
@@ -1807,7 +1817,7 @@ function rebuildGeometry(force){
 /* ════════════════════════════════════════════════════════════════════
    9 · RENDER
    ════════════════════════════════════════════════════════════════════ */
-let boxVBO = null;
+let boxVBO = null, alOnVBO = null;
 function makeBox(){
   const [a,b,c0] = LO, [d,e,f] = HI;
   const v = [
@@ -1817,6 +1827,9 @@ function makeBox(){
   boxVBO = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, boxVBO);
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(v), gl.STATIC_DRAW);
+  alOnVBO = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, alOnVBO);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(24).fill(1), gl.STATIC_DRAW);
 }
 
 function hsl2rgb(h,s,l){
@@ -1853,6 +1866,9 @@ function render(){
   gl.bindBuffer(gl.ARRAY_BUFFER, boxVBO);
   gl.enableVertexAttribArray(LOC.line.aPos);
   gl.vertexAttribPointer(LOC.line.aPos, 3, gl.FLOAT, false, 0, 0);
+  gl.bindBuffer(gl.ARRAY_BUFFER, alOnVBO);
+  gl.enableVertexAttribArray(LOC.line.aAl);
+  gl.vertexAttribPointer(LOC.line.aAl, 1, gl.FLOAT, false, 0, 0);
   gl.enable(gl.BLEND);
   gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
   gl.drawArrays(gl.LINES, 0, 24);
@@ -1940,19 +1956,31 @@ function render(){
       if(!S || !S.edges || !S.pcount) continue;
       const E = S.edges[Lc];
       if(!E || !E.length) continue;
-      if(!S.ebuf || S.ebuf.length !== E.length*6)
-        S.ebuf = new Float32Array(E.length*6);
-      let o = 0;
-      for(const [a,b] of E){
-        S.ebuf[o++]=S.ptArr[a*3  ]; S.ebuf[o++]=S.ptArr[a*3+1]; S.ebuf[o++]=S.ptArr[a*3+2];
-        S.ebuf[o++]=S.ptArr[b*3  ]; S.ebuf[o++]=S.ptArr[b*3+1]; S.ebuf[o++]=S.ptArr[b*3+2];
+      if(!S.ebuf || S.ebuf.length !== E.length*8)
+        S.ebuf = new Float32Array(E.length*8);
+      let mx = 1e-9;
+      const len = new Float32Array(E.length);
+      for(let e=0;e<E.length;e++){
+        const a=E[e][0],b=E[e][1];
+        const dx=S.ptArr[a*3]-S.ptArr[b*3], dy=S.ptArr[a*3+1]-S.ptArr[b*3+1],
+              dz=S.ptArr[a*3+2]-S.ptArr[b*3+2];
+        const l=Math.sqrt(dx*dx+dy*dy+dz*dz); len[e]=l; if(l>mx)mx=l;
       }
-      const col = hsl2rgb(D.series[i].hue, 0.55, 0.55);
-      gl.uniform4f(LOC.line.uCol, col[0], col[1], col[2], 0.30);
+      let o = 0;
+      for(let e=0;e<E.length;e++){
+        const a=E[e][0],b=E[e][1];
+        const al = Math.min(1, Math.max(0.18, 1.25 - 1.05*len[e]/mx));
+        S.ebuf[o++]=S.ptArr[a*3  ]; S.ebuf[o++]=S.ptArr[a*3+1]; S.ebuf[o++]=S.ptArr[a*3+2]; S.ebuf[o++]=al;
+        S.ebuf[o++]=S.ptArr[b*3  ]; S.ebuf[o++]=S.ptArr[b*3+1]; S.ebuf[o++]=S.ptArr[b*3+2]; S.ebuf[o++]=al;
+      }
+      const col = hsl2rgb(D.series[i].hue, 0.55, 0.58);
+      gl.uniform4f(LOC.line.uCol, col[0], col[1], col[2], 0.5);
       gl.bindBuffer(gl.ARRAY_BUFFER, S.ebo);
       gl.bufferData(gl.ARRAY_BUFFER, S.ebuf, gl.DYNAMIC_DRAW);
       gl.enableVertexAttribArray(LOC.line.aPos);
-      gl.vertexAttribPointer(LOC.line.aPos, 3, gl.FLOAT, false, 0, 0);
+      gl.vertexAttribPointer(LOC.line.aPos, 3, gl.FLOAT, false, 16, 0);
+      gl.enableVertexAttribArray(LOC.line.aAl);
+      gl.vertexAttribPointer(LOC.line.aAl, 1, gl.FLOAT, false, 16, 12);
       gl.drawArrays(gl.LINES, 0, E.length*2);
     }
     gl.depthMask(true);
@@ -1963,6 +1991,7 @@ function render(){
   if(act.length <= 2 && (showPts || !surf)){
     ox.font = '10px ui-monospace,monospace';
     ox.textAlign = 'center';
+    ox.shadowColor = 'rgba(0,0,0,.85)'; ox.shadowBlur = 4;
     for(const i of act){
       const S = SER[i];
       if(!S || !S.pcount) continue;
@@ -1976,7 +2005,7 @@ function render(){
         ox.fillText(D.series[i].tokens[q]||'', wv.x, wv.y - 9);
       }
     }
-    ox.globalAlpha = 1;
+    ox.globalAlpha = 1; ox.shadowBlur = 0;
   }
 }
 
@@ -2106,7 +2135,7 @@ function buildRail(){
     d.innerHTML='<label>'+lbl+'</label>';
     d.onpointerdown=e=>{e.stopPropagation();targetPos=i;playing=false;sync()};
     rail.appendChild(d);DOTS.push(d)}}
-rail.onpointerdown=e=>{scrub=1;const r=rail.getBoundingClientRect();
+rail.onpointerdown=e=>{e.preventDefault();scrub=1;const r=rail.getBoundingClientRect();
   pos=(1-Math.max(0,Math.min(1,(e.clientY-r.top)/r.height)))*(LAYERS-1);
   targetPos=null;playing=false;sync()};
 
@@ -2463,6 +2492,7 @@ async function run(){
 
     freeSeries();
     if(boxVBO) gl.deleteBuffer(boxVBO);
+    if(alOnVBO) gl.deleteBuffer(alOnVBO);
     makeBox();
 
     const per=RES*RES*RES;
