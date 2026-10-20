@@ -496,6 +496,15 @@ def analyse(texts, model_name, pipeline, emd_mode,
                                   w=wasserstein(HS[i][L], HS[j][L], mode=emd_mode)))
         emd_layers.append(pairs)
 
+    # Normierung pro Layer: jede Ebene wird auf ihr eigenes Maximum
+    # gebracht, damit der Iso-Wert ueber alle Layer vergleichbar ist und
+    # auch sparsame Layer die komplette Roehrenstruktur zeigen.
+    for s in range(n_series):
+        for L in range(n_layers):
+            mx = float(fields[s][L].max())
+            if mx > 0:
+                fields[s][L] /= mx
+
     series = []
     for s in range(n_series):
         drift_s = [0.0] + [wasserstein(HS[s][L - 1], HS[s][L], mode=emd_mode)
@@ -890,8 +899,9 @@ def build_html() -> str:
   <div class="btn" id="bPlay">▶</div>
   <div class="btn" id="bPrev">◂</div>
   <div class="btn" id="bNext">▸</div>
-  <div class="btn on" id="bSurf">◆</div>
-  <div class="btn" id="bPts">·</div>
+  <div class="btn" id="bSurf">◇</div>
+  <div class="btn on" id="bPts">·</div>
+  <div class="btn" id="bVR">⋈</div>
   <div class="btn" id="bAll">◉</div>
   <div class="btn" id="bHC">A</div>
 </div>
@@ -899,7 +909,7 @@ def build_html() -> str:
 <div id="leg"></div>
 <div id="toks"></div>
 
-<div id="ft">DRAG ROTATE · SCROLL ZOOM · ◂ ▸ LAYER · 1–8 SATZ · ⇧+N SOLO</div>
+<div id="ft">DRAG ROTATE · SCROLL ZOOM · ◂ ▸ LAYER · 1–8 SATZ · ⇧+N SOLO · S FLÄCHE · P PUNKTE · V RIPS</div>
 
 <div id="boot"><div>HIDDEN-STATE MANIFOLD · V5</div>
   <div id="bootbar"><i></i></div>
@@ -1698,7 +1708,7 @@ let D = null;
 let LAYERS = 1, RES = 48;
 let LO = [-1.3,-1.3,-1.3], HI = [1.3,1.3,1.3];
 let pos = 0, playing = false, scrub = null, targetPos = null;
-let surf = true, showPts = false;
+let surf = false, showPts = true, showVR = false;
 let VIS = [], SOLO = -1, FOCUS = 0;
 let ISO = 0.22;
 const STEP_SPD = 5.6, AUTO_SPD = 0.34;
@@ -1917,6 +1927,37 @@ function render(){
     gl.depthMask(true);
   }
 
+  // ── Rips-Kanten (kNN) ----------------------------------------------
+  if(showVR){
+    gl.useProgram(PR_LINE);
+    gl.uniformMatrix4fv(LOC.line.uMVP, false, MVP);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.depthMask(false);
+    const Lc = LAYERS>1 ? Math.min(LAYERS-1, Math.round(pos)) : 0;
+    for(const i of act){
+      const S = SER[i];
+      if(!S || !S.edges || !S.pcount) continue;
+      const E = S.edges[Lc];
+      if(!E || !E.length) continue;
+      if(!S.ebuf || S.ebuf.length !== E.length*6)
+        S.ebuf = new Float32Array(E.length*6);
+      let o = 0;
+      for(const [a,b] of E){
+        S.ebuf[o++]=S.ptArr[a*3  ]; S.ebuf[o++]=S.ptArr[a*3+1]; S.ebuf[o++]=S.ptArr[a*3+2];
+        S.ebuf[o++]=S.ptArr[b*3  ]; S.ebuf[o++]=S.ptArr[b*3+1]; S.ebuf[o++]=S.ptArr[b*3+2];
+      }
+      const col = hsl2rgb(D.series[i].hue, 0.55, 0.55);
+      gl.uniform4f(LOC.line.uCol, col[0], col[1], col[2], 0.30);
+      gl.bindBuffer(gl.ARRAY_BUFFER, S.ebo);
+      gl.bufferData(gl.ARRAY_BUFFER, S.ebuf, gl.DYNAMIC_DRAW);
+      gl.enableVertexAttribArray(LOC.line.aPos);
+      gl.vertexAttribPointer(LOC.line.aPos, 3, gl.FLOAT, false, 0, 0);
+      gl.drawArrays(gl.LINES, 0, E.length*2);
+    }
+    gl.depthMask(true);
+  }
+
   // ── Token-Beschriftung im Overlay ─────────────────────────────────
   ox.clearRect(0,0,W,H);
   if(act.length <= 2 && (showPts || !surf)){
@@ -2086,6 +2127,7 @@ function updateRail(){
 const bPlay=document.getElementById('bPlay'),
       bSurf=document.getElementById('bSurf'),
       bPts =document.getElementById('bPts'),
+      bVR  =document.getElementById('bVR'),
       bAll =document.getElementById('bAll'),
       bHC  =document.getElementById('bHC'),
       legHost=document.getElementById('leg');
@@ -2124,6 +2166,7 @@ document.getElementById('bNext').onclick=()=>{playing=false;
 bSurf.onclick=()=>{surf=!surf;bSurf.classList.toggle('on',surf);
   bSurf.textContent=surf?'◆':'◇';lastKey=''};
 bPts.onclick=()=>{showPts=!showPts;bPts.classList.toggle('on',showPts);lastKey=''};
+bVR.onclick=()=>{showVR=!showVR;bVR.classList.toggle('on',showVR);lastKey=''};
 bAll.onclick=()=>{
   if(!D)return;
   const all=SOLO<0&&VIS.every(v=>v);
@@ -2151,6 +2194,7 @@ addEventListener('keydown',e=>{
   if(e.code==='End'){e.preventDefault();playing=false;targetPos=LAYERS-1;sync();return}
   if(e.code==='KeyS'){bSurf.onclick();return}
   if(e.code==='KeyP'){bPts.onclick();return}
+  if(e.code==='KeyV'){bVR.onclick();return}
   if(e.code==='KeyA'){bAll.onclick();return}
   if(e.code==='KeyH'){bHC.onclick();return}
   if(e.key>='1'&&e.key<='8'&&D){
@@ -2358,8 +2402,27 @@ function freeSeries(){
     if(S.vbo) gl.deleteBuffer(S.vbo);
     if(S.nbo) gl.deleteBuffer(S.nbo);
     if(S.pbo) gl.deleteBuffer(S.pbo);
+    if(S.ebo) gl.deleteBuffer(S.ebo);
   }
   SER=[];
+}
+
+/* kNN-Kanten im PCA-Raum: jeder Token verbindet seine k naechsten
+   Nachbarn -> diskretes Vietoris-Rips-Flavour, pro Layer. */
+function knnEdges(pts, k=3){
+  const T = pts.length, out = [];
+  if(T < 2) return out;
+  for(let i=0;i<T;i++){
+    const near = [];
+    for(let j=0;j<T;j++){
+      if(j===i) continue;
+      const dx=pts[i][0]-pts[j][0], dy=pts[i][1]-pts[j][1], dz=pts[i][2]-pts[j][2];
+      near.push([dx*dx+dy*dy+dz*dz, j]);
+    }
+    near.sort((a,b)=>a[0]-b[0]);
+    for(let q=0;q<k && q<near.length;q++) out.push([i, near[q][1]]);
+  }
+  return out;
 }
 
 async function run(){
@@ -2409,9 +2472,12 @@ async function run(){
         grids,
         blend:new Float32Array(per),
         vbo:gl.createBuffer(), nbo:gl.createBuffer(), pbo:gl.createBuffer(),
-        ptArr:null, count:0, pcount:0});
+        ebo:gl.createBuffer(),
+        ptArr:null, count:0, pcount:0, edges:null, ebuf:null});
       D.series[s].grid=null;          // Speicher freigeben
     }
+    for(let s=0;s<D.series.length;s++)
+      SER[s].edges = D.series[s].pts.map(knnEdges);
 
     pos=0; targetPos=null; playing=false;
     VIS=D.series.map(()=>true); SOLO=-1; FOCUS=0; lastHudLayer=-1; lastKey='';
