@@ -901,7 +901,7 @@ def build_html() -> str:
   <div class="btn" id="bNext">▸</div>
   <div class="btn" id="bSurf">◇</div>
   <div class="btn on" id="bPts">·</div>
-  <div class="btn" id="bVR">⋈</div>
+  <div class="btn on" id="bVR">⋈</div>
   <div class="btn" id="bAll">◉</div>
   <div class="btn" id="bHC">A</div>
 </div>
@@ -1708,7 +1708,7 @@ let D = null;
 let LAYERS = 1, RES = 48;
 let LO = [-1.3,-1.3,-1.3], HI = [1.3,1.3,1.3];
 let pos = 0, playing = false, scrub = null, targetPos = null;
-let surf = false, showPts = true, showVR = false;
+let surf = false, showPts = true, showVR = true;
 let VIS = [], SOLO = -1, FOCUS = 0;
 let ISO = 0.22;
 const STEP_SPD = 5.6, AUTO_SPD = 0.34;
